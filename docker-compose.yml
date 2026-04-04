@@ -47,6 +47,25 @@ services:
     networks:
       - backend
 
+
+  # Prometheus — собирает данные
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - backend
+
+  # Grafana — визуализирует данные
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - backend
+
 networks:
   backend:
     driver: bridge
