@@ -1,31 +1,68 @@
----
-- name: Deploy Full-Stack DevOps Pipeline
+- name: Local to Multipass Deploy (Full Offline)
   hosts: all
   become: yes
 
+  vars:
+    # Пути для архивов на локальной машине
+    archive_app: "/tmp/my-go-app.tar"
+    archive_prom: "/tmp/prometheus.tar"
+    archive_grafana: "/tmp/grafana.tar"
+
   tasks:
-    - name: Ensure project directory exists
-      file:
-        path: /opt/devops-pipeline
-        state: directory
-        mode: '0755'
+    # --- ЭТАП 1: ПОДГОТОВКА ВСЕХ ОБРАЗОВ ЛОКАЛЬНО ---
+    - name: Prepare images locally
+      delegate_to: localhost
+      become: no
+      run_once: true
+      block:
+        - name: Build App Image
+          community.docker.docker_image:
+            build: { path: "../app" }
+            name: "my-go-app"
+            source: build
 
-    - name: Copy Docker Compose file
-      copy:
-        src: ../docker-compose.yml
-        dest: /opt/devops-pipeline/docker-compose.yml
+        - name: Pull Monitoring Images
+          shell: "docker pull {{ item }}"
+          loop: ["prom/prometheus:latest", "grafana/grafana:latest"]
 
-    - name: Copy Nginx configuration (fixed path)
-      copy:
-        src: ../default.conf
-        dest: /opt/devops-pipeline/default.conf
+        - name: Save all to tarballs
+          shell: "docker save {{ item.name }} > {{ item.path }}"
+          loop:
+            - { name: "my-go-app:latest", path: "{{ archive_app }}" }
+            - { name: "prom/prometheus:latest", path: "{{ archive_prom }}" }
+            - { name: "grafana/grafana:latest", path: "{{ archive_grafana }}" }
 
-    - name: Copy App source (if needed for build)
-      copy:
-        src: ../app/
-        dest: /opt/devops-pipeline/app/
+    # --- ЭТАП 2: ПЕРЕДАЧА И ЗАПУСК ПРИЛОЖЕНИЯ ---
+    - name: Deploy App
+      when: inventory_hostname in groups['app_servers']
+      block:
+        - copy: { src: "{{ archive_app }}", dest: "/tmp/app.tar" }
+        - shell: "docker load < /tmp/app.tar"
+        - community.docker.docker_container:
+            name: "go-app"
+            image: "my-go-app:latest"
+            state: started
+            published_ports: ["80:8080"]
 
-    - name: Pull and Start Docker Containers (using shell)
-      shell: "docker-compose up -d --build"
-      args:
-        chdir: /opt/devops-pipeline
+    # --- ЭТАП 3: ПЕРЕДАЧА И ЗАПУСК МОНИТОРИНГА ---
+    - name: Deploy Monitoring
+      when: inventory_hostname in groups['monitoring_servers']
+      block:
+        - name: Copy Monitoring Tarballs
+          copy:
+            src: "{{ item.src }}"
+            dest: "{{ item.dest }}"
+          loop:
+            - { src: "{{ archive_prom }}", dest: "/tmp/prom.tar" }
+            - { src: "{{ archive_grafana }}", dest: "/tmp/grafana.tar" }
+
+        - name: Load Monitoring Images
+          shell: "docker load < {{ item }}"
+          loop: ["/tmp/prom.tar", "/tmp/grafana.tar"]
+
+        - name: Start Prometheus (Already using loaded image)
+          community.docker.docker_container:
+            name: prometheus
+            image: prom/prometheus:latest
+            state: started
+            # ... остальные настройки (volumes, ports) те же

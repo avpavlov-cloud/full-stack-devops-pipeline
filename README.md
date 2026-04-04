@@ -55,4 +55,13 @@ multipass shell monitor-server
 ```bash
 ~/.ssh/authorized_keys
 ```
+Проверка доступности серверов с основной машины для ansible
+```bash
+ansible all -i ansible/inventory.ini -m ping
+```
+
+## Установить docker на все сервера
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/setup_nodes.yml
+```
 
