@@ -65,3 +65,9 @@ ansible all -i ansible/inventory.ini -m ping
 ansible-playbook -i ansible/inventory.ini ansible/setup_nodes.yml
 ```
 
+## Пересоздание сервера с большим размером диска
+```bash
+multipass delete monitor-server --purge
+multipass launch --name monitor-server --cpus 1 --memory 1G --disk 15G
+```
+
