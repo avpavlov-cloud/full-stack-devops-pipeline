@@ -38,6 +38,7 @@
       block:
         - copy: { src: "{{ archive_app }}", dest: "/tmp/app.tar" }
         - shell: "docker load < /tmp/app.tar"
+        - file: { path: "/tmp/app.tar", state: absent }
         - community.docker.docker_container:
             name: "go-app"
             image: "my-go-app:latest"
@@ -60,6 +61,12 @@
           shell: "docker load < {{ item }}"
           loop: ["/tmp/prom.tar", "/tmp/grafana.tar"]
 
+        - name: Cleanup monitoring tarballs
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop: ["/tmp/prom.tar", "/tmp/grafana.tar"]
+          
         - name: Start Prometheus (Already using loaded image)
           community.docker.docker_container:
             name: prometheus
