@@ -40,8 +40,19 @@ multipass launch --name app-server --cpus 1 --memory 1G
 Получение списка IP-адресов
 ```bash
 multipass list
+```
+```bash
 multipass shell control
 ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa
 
+```
+
+Копирование публичного ключа на сервера
+```bash
+multipass shell monitor-server
+```
+Копировать публичный ключ сюда
+```bash
+~/.ssh/authorized_keys
 ```
 
