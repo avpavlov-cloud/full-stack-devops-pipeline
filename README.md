@@ -12,6 +12,21 @@ ansible-playbook -i ansible/inventory.ini ansible/deploy.yml -K
 ansible-playbook -i ansible/inventory.ini ansible/deploy.yml --ask-become-pass
 
 ```
+Посмотреть логи работы докера, потмоу что во время скачивания и устновки образов не всегда видно что там в фоне происходит
+```bash
+journalctl -u docker -f
+```
+
+Grafana
+```bash
+http://localhost:3000
+```
+
+Приложение Go
+```bash
+http://localhost/
+```
+
 
 ## Запуск multipass для эмуляции вируалок
 ```bash
