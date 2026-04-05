@@ -1,12 +1,15 @@
+---
 - name: Local to Multipass Deploy (Full Offline)
   hosts: all
   become: yes
 
   vars:
-    # Пути для архивов на локальной машине
+    # Пути для архивов на локальной машине (откуда запускаете Ansible)
     archive_app: "/tmp/my-go-app.tar"
     archive_prom: "/tmp/prometheus.tar"
     archive_grafana: "/tmp/grafana.tar"
+    # IP вашего app-server для конфига Prometheus (подставьте свой, если изменился)
+    app_server_ip: "10.157.62.200"
 
   tasks:
     # --- ЭТАП 1: ПОДГОТОВКА ВСЕХ ОБРАЗОВ ЛОКАЛЬНО ---
@@ -19,6 +22,7 @@
           community.docker.docker_image:
             build: { path: "../app" }
             name: "my-go-app"
+            tag: "latest"
             source: build
 
         - name: Pull Monitoring Images
@@ -36,19 +40,42 @@
     - name: Deploy App
       when: inventory_hostname in groups['app_servers']
       block:
-        - copy: { src: "{{ archive_app }}", dest: "/tmp/app.tar" }
-        - shell: "docker load < /tmp/app.tar"
-        - file: { path: "/tmp/app.tar", state: absent }
-        - community.docker.docker_container:
+        - name: Copy App Tarball
+          copy: { src: "{{ archive_app }}", dest: "/tmp/app.tar" }
+        
+        - name: Load App Image
+          shell: "docker load < /tmp/app.tar"
+        
+        - name: Cleanup App Tarball
+          file: { path: "/tmp/app.tar", state: absent }
+
+        - name: Start Go App Container
+          community.docker.docker_container:
             name: "go-app"
             image: "my-go-app:latest"
             state: started
-            published_ports: ["80:8080"]
+            restart_policy: always
+            published_ports: 
+              - "80:8080"
 
     # --- ЭТАП 3: ПЕРЕДАЧА И ЗАПУСК МОНИТОРИНГА ---
     - name: Deploy Monitoring
       when: inventory_hostname in groups['monitoring_servers']
       block:
+        - name: Create Prometheus Config Directory
+          file: { path: "/opt/prometheus", state: directory, mode: '0755' }
+
+        - name: Create Prometheus Config File
+          copy:
+            dest: "/opt/prometheus/prometheus.yml"
+            content: |
+              global:
+                scrape_interval: 10s
+              scrape_configs:
+                - job_name: 'go-app'
+                  static_configs:
+                    - targets: ['{{ app_server_ip }}:80']
+
         - name: Copy Monitoring Tarballs
           copy:
             src: "{{ item.src }}"
@@ -61,15 +88,33 @@
           shell: "docker load < {{ item }}"
           loop: ["/tmp/prom.tar", "/tmp/grafana.tar"]
 
-        - name: Cleanup monitoring tarballs
-          file:
-            path: "{{ item }}"
-            state: absent
+        - name: Cleanup Monitoring Tarballs
+          file: { path: "{{ item }}", state: absent }
           loop: ["/tmp/prom.tar", "/tmp/grafana.tar"]
-          
-        - name: Start Prometheus (Already using loaded image)
+
+        - name: Start Prometheus
           community.docker.docker_container:
             name: prometheus
             image: prom/prometheus:latest
             state: started
-            # ... остальные настройки (volumes, ports) те же
+            restart_policy: always
+            published_ports:
+              - "9090:9090"
+            volumes:
+              - /opt/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+
+        - name: Start Grafana
+          community.docker.docker_container:
+            name: grafana
+            image: grafana/grafana:latest
+            state: started
+            restart_policy: always
+            published_ports:
+              - "3000:3000"
+
+    # --- ЭТАП 4: НАСТРОЙКА FIREWALL (UFW) ---
+    - name: Open Ports in Firewall
+      shell: "ufw allow {{ item }}/tcp"
+      loop: ["80", "8080", "3000", "9090"]
+      ignore_errors: yes # На случай, если ufw не активен
+
